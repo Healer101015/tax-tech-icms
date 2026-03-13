@@ -37,33 +37,37 @@ model Usuario {
 }
 
 model LoteCredito {
-  id               String   @id @default(uuid())
-  empresa_id       String
-  uf_origem        String   @db.Char(2)
+  id                  String      @id @default(uuid())
+  empresa_id          String
+  uf_origem           String      @db.Char(2)
   // O valor_face representa o estoque original e NUNCA deve ser atualizado diretamente após criado.
   // Fracionamentos devem gerar novos lotes (lotes filhos).
-  valor_face       Decimal  @db.Decimal(15, 2)
-  desagio_sugerido Decimal  @db.Decimal(5, 2)
-  status           StatusLote @default(DISPONIVEL)
-  criado_em        DateTime @default(now())
+  valor_face          Decimal     @db.Decimal(15, 2)
+  desagio_sugerido    Decimal     @db.Decimal(5, 2)
+  status              StatusLote  @default(DISPONIVEL)
+  
+  // O caminho do arquivo PDF/Imagem de homologação salvo no servidor
+  arquivo_homologacao String?     
+  
+  criado_em           DateTime    @default(now())
 
-  vendedor         Empresa  @relation("Vendedor", fields: [empresa_id], references: [id])
-  propostas        Proposta[]
+  vendedor            Empresa     @relation("Vendedor", fields: [empresa_id], references: [id])
+  propostas           Proposta[]
 
   @@map("lotes_credito")
 }
 
 model Proposta {
-  id                String   @id @default(uuid())
+  id                String         @id @default(uuid())
   lote_id           String
   comprador_id      String
-  desagio_oferecido Decimal  @db.Decimal(5, 2)
-  valor_final       Decimal  @db.Decimal(15, 2)
+  desagio_oferecido Decimal        @db.Decimal(5, 2)
+  valor_final       Decimal        @db.Decimal(15, 2)
   status            StatusProposta @default(EM_ANALISE)
-  criado_em         DateTime @default(now())
+  criado_em         DateTime       @default(now())
 
-  lote              LoteCredito @relation(fields: [lote_id], references: [id])
-  comprador         Empresa     @relation("Comprador", fields: [comprador_id], references: [id])
+  lote              LoteCredito    @relation(fields: [lote_id], references: [id])
+  comprador         Empresa        @relation("Comprador", fields: [comprador_id], references: [id])
 
   @@map("propostas")
 }
