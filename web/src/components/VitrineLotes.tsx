@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { Building2, MapPin, Tag, ArrowRight, Loader2, X, CheckCircle2 } from 'lucide-react';
+import { Building2, MapPin, Tag, ArrowRight, Loader2, X, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 interface Lote {
     id: string;
@@ -8,6 +8,7 @@ interface Lote {
     uf_origem: string;
     valor_face: string;
     desagio_sugerido: string;
+    arquivo_homologacao: string;
     vendedor: {
         razao_social: string;
         uf: string;
@@ -16,20 +17,21 @@ interface Lote {
 
 export function VitrineLotes() {
     const [lotes, setLotes] = useState<Lote[]>([]);
+    const [ufFiltro, setUfFiltro] = useState('');
     const [loading, setLoading] = useState(true);
 
-    // Estados do Modal de Proposta
     const [loteSelecionado, setLoteSelecionado] = useState<Lote | null>(null);
     const [desagioOferecido, setDesagioOferecido] = useState('');
     const [loadingProposta, setLoadingProposta] = useState(false);
 
-    // Pega os dados do usuário logado para evitar que ele compre o próprio lote
     const usuarioLogado = JSON.parse(localStorage.getItem('@TaxTrade:usuario') || '{}');
 
     const carregarLotes = async () => {
         try {
             const response = await api.get('/lotes');
-            setLotes(response.data);
+            // O backend agora devolve { lotes: [...], uf_filtro: 'SP' }
+            setLotes(response.data.lotes);
+            setUfFiltro(response.data.uf_filtro);
         } catch (error) {
             console.error("Erro ao buscar lotes:", error);
         } finally {
@@ -58,7 +60,7 @@ export function VitrineLotes() {
 
             alert('Proposta enviada com sucesso! O vendedor será notificado.');
             setLoteSelecionado(null);
-            carregarLotes(); // Recarrega a vitrine (o lote deve sumir se for para "EM_NEGOCIACAO")
+            carregarLotes();
         } catch (error: any) {
             console.error(error);
             alert(error.response?.data?.error || 'Erro ao enviar proposta.');
@@ -78,16 +80,26 @@ export function VitrineLotes() {
     return (
         <div className="p-8 w-full max-w-7xl mx-auto relative">
 
-            <div className="mb-8 border-b border-white/10 pb-6">
-                <h2 className="text-3xl font-bold tracking-tight mb-2 text-white">Balcão de Negócios</h2>
-                <p className="text-[#a1a1aa]">Explore créditos de ICMS disponíveis e envie suas propostas.</p>
+            <div className="mb-8 border-b border-white/10 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-3xl font-bold tracking-tight mb-2 text-white">Balcão de Negócios</h2>
+                    <p className="text-[#a1a1aa]">Explore créditos de ICMS disponíveis e envie suas propostas.</p>
+                </div>
+
+                {/* Badge mostrando que a trava geográfica está funcionando */}
+                {ufFiltro && (
+                    <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-4 py-2 rounded-lg text-sm text-blue-400 font-medium">
+                        <MapPin className="w-4 h-4" />
+                        Exibindo apenas créditos de {ufFiltro}
+                    </div>
+                )}
             </div>
 
             {lotes.length === 0 ? (
                 <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl p-16 text-center shadow-lg">
                     <CheckCircle2 className="w-12 h-12 text-[#52525b] mx-auto mb-4" />
-                    <h3 className="text-xl font-medium text-white mb-2">Vitrine Vazia</h3>
-                    <p className="text-[#a1a1aa]">Nenhum lote de ICMS disponível para compra no momento.</p>
+                    <h3 className="text-xl font-medium text-white mb-2">Nenhum lote compatível</h3>
+                    <p className="text-[#a1a1aa]">Não há créditos de ICMS disponíveis para o estado ({ufFiltro}) no momento.</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -106,8 +118,8 @@ export function VitrineLotes() {
                                             <h3 className="font-semibold text-sm truncate w-32 text-white" title={lote.vendedor.razao_social}>
                                                 {lote.vendedor.razao_social}
                                             </h3>
-                                            <div className="flex items-center gap-1 text-xs text-[#a1a1aa] mt-1">
-                                                <MapPin className="w-3 h-3" /> Origem: {lote.uf_origem}
+                                            <div className="flex items-center gap-1 text-xs text-green-400 mt-1 font-medium">
+                                                <ShieldCheck className="w-3 h-3" /> Auditado
                                             </div>
                                         </div>
                                     </div>
@@ -120,7 +132,7 @@ export function VitrineLotes() {
 
                                 <div className="space-y-4 mb-6">
                                     <div>
-                                        <p className="text-xs text-[#a1a1aa] mb-1">Valor de Face (Estoque Imutável)</p>
+                                        <p className="text-xs text-[#a1a1aa] mb-1">Valor de Face</p>
                                         <p className="text-2xl font-bold text-white">{formatarMoeda(lote.valor_face)}</p>
                                     </div>
 
@@ -136,7 +148,7 @@ export function VitrineLotes() {
                                 <button
                                     onClick={() => {
                                         setLoteSelecionado(lote);
-                                        setDesagioOferecido(lote.desagio_sugerido); // Preenche com o sugerido por padrão
+                                        setDesagioOferecido(lote.desagio_sugerido);
                                     }}
                                     disabled={isMeuLote}
                                     className="w-full bg-[#111111] border border-white/10 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-all hover:bg-blue-600 hover:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -150,7 +162,7 @@ export function VitrineLotes() {
                 </div>
             )}
 
-            {/* Modal Premium de Negociação (Aparece por cima de tudo) */}
+            {/* Modal de Proposta */}
             {loteSelecionado && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
                     <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden relative">
@@ -174,22 +186,14 @@ export function VitrineLotes() {
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-[#a1a1aa]">Qual deságio você quer oferecer? (%)</label>
                                 <input
-                                    type="number"
-                                    step="0.01"
-                                    required
-                                    value={desagioOferecido}
-                                    onChange={(e) => setDesagioOferecido(e.target.value)}
+                                    type="number" step="0.01" required value={desagioOferecido} onChange={(e) => setDesagioOferecido(e.target.value)}
                                     className="w-full bg-[#111111] border border-white/10 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all text-lg"
                                     placeholder="Ex: 18.5"
                                 />
                                 <p className="text-xs text-[#52525b]">O vendedor sugeriu {loteSelecionado.desagio_sugerido}%. Você pode negociar.</p>
                             </div>
 
-                            <button
-                                type="submit"
-                                disabled={loadingProposta}
-                                className="w-full bg-white text-black hover:bg-gray-200 font-bold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-70"
-                            >
+                            <button type="submit" disabled={loadingProposta} className="w-full bg-white text-black hover:bg-gray-200 font-bold py-3.5 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-70">
                                 {loadingProposta ? <><Loader2 className="w-5 h-5 animate-spin" /> Processando...</> : 'Confirmar e Enviar'}
                             </button>
                         </form>

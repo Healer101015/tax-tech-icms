@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from './prisma';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -6,24 +6,48 @@ import { verificarToken, AuthRequest } from './middlewares/auth';
 import multer from 'multer';
 import crypto from 'crypto';
 import path from 'path';
+import fs from 'fs';
 
 export const routes = Router();
 
 const JWT_SECRET = "tax-tech-icms-super-secret-key-2026";
 
 // ==========================================
-// CONFIGURAÇÃO DE UPLOAD (MULTER)
+// CONFIGURAÇÃO DE UPLOAD (MULTER) À PROVA DE BALAS
 // ==========================================
+
+// 1. Garante que a pasta uploads existe (cria automaticamente pelo código)
+const uploadDir = path.resolve(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// 2. Configura onde e como salvar
 const multerConfig = multer.diskStorage({
-    // Garante que o arquivo vai ser salvo na pasta 'uploads' na raiz do projeto api
-    destination: path.resolve(__dirname, '..', 'uploads'),
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
     filename: (req, file, cb) => {
-        // Gera um código aleatório para o nome do arquivo não dar conflito
         const hash = crypto.randomBytes(8).toString('hex');
-        cb(null, `${hash}-${file.originalname}`);
+        // Sanitiza o nome do arquivo para evitar crash no Windows/Linux
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
+        cb(null, `${hash}-${safeName}`);
     }
 });
-const upload = multer({ storage: multerConfig });
+
+// 3. Escudo anti-crash (Intercepta erros de arquivo para o Node não morrer)
+const upload = multer({ storage: multerConfig }).single('documento');
+
+const uploadMiddleware = (req: Request, res: Response, next: NextFunction) => {
+    upload(req, res, (err: any) => {
+        if (err) {
+            console.error("🚨 ERRO DO MULTER:", err);
+            return res.status(400).json({ error: `Falha no upload do arquivo: ${err.message}` });
+        }
+        next();
+    });
+};
+
 
 // ==========================================
 // 1. AUTENTICAÇÃO (Registro e Login)
@@ -97,11 +121,23 @@ routes.post('/login', async (req, res) => {
 // 2. LOTES DE ICMS (Estoque e Vitrine)
 // ==========================================
 
-// Rota PROTEGIDA: Listar lotes disponíveis na Vitrine
 routes.get('/lotes', verificarToken, async (req: AuthRequest, res) => {
     try {
+        const empresa_id = req.usuario?.empresa_id;
+        if (!empresa_id) return res.status(401).json({ error: 'Acesso negado.' });
+
+        const minhaEmpresa = await prisma.empresa.findUnique({
+            where: { id: empresa_id },
+            select: { uf: true }
+        });
+
+        if (!minhaEmpresa) return res.status(404).json({ error: 'Empresa não encontrada.' });
+
         const lotes = await prisma.loteCredito.findMany({
-            where: { status: 'DISPONIVEL' },
+            where: {
+                status: 'DISPONIVEL',
+                uf_origem: minhaEmpresa.uf
+            },
             include: {
                 vendedor: {
                     select: { razao_social: true, uf: true }
@@ -109,30 +145,30 @@ routes.get('/lotes', verificarToken, async (req: AuthRequest, res) => {
             },
             orderBy: { criado_em: 'desc' }
         });
-        return res.json(lotes);
+
+        return res.json({ lotes, uf_filtro: minhaEmpresa.uf });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Erro ao buscar lotes na vitrine.' });
     }
 });
 
-// Rota PROTEGIDA: Criar um novo lote COM UPLOAD DO DOCUMENTO DA SEFAZ
-// Adicionamos o middleware upload.single('documento') aqui
-routes.post('/lotes', verificarToken, upload.single('documento'), async (req: AuthRequest, res) => {
+// Aplicamos o escudo 'uploadMiddleware' antes da nossa lógica de rota
+routes.post('/lotes', verificarToken, uploadMiddleware, async (req: AuthRequest, res) => {
     try {
+        console.log("📦 DADOS TEXTUAIS RECEBIDOS:", req.body);
+        console.log("📄 DADOS DO ARQUIVO RECEBIDO:", req.file);
+
         const { uf_origem, valor_face, desagio_sugerido } = req.body;
         const empresa_id = req.usuario?.empresa_id;
-
-        // Pega o nome do arquivo que o multer salvou na pasta
         const arquivo_homologacao = req.file?.filename;
-
-        console.log("📥 DADOS RECEBIDOS NA API:", { empresa_id, uf_origem, valor_face, desagio_sugerido, arquivo_homologacao });
 
         if (!empresa_id) {
             return res.status(400).json({ error: 'Token desatualizado. Por favor, saia da conta e faça login novamente.' });
         }
+        // Se uf_origem estiver vazio, é porque o formData não empacotou direito no frontend
         if (!uf_origem) {
-            return res.status(400).json({ error: 'O Estado de Origem (UF) está vazio.' });
+            return res.status(400).json({ error: 'O Estado de Origem (UF) está vazio ou não foi enviado.' });
         }
         if (valor_face === undefined || valor_face === null || isNaN(Number(valor_face))) {
             return res.status(400).json({ error: 'O Valor de Face não é um número válido.' });
@@ -150,15 +186,15 @@ routes.post('/lotes', verificarToken, upload.single('documento'), async (req: Au
                 uf_origem,
                 valor_face: Number(valor_face),
                 desagio_sugerido: Number(desagio_sugerido),
-                arquivo_homologacao, // Salva o nome do PDF gerado no banco
+                arquivo_homologacao,
                 status: 'DISPONIVEL'
             },
         });
 
         return res.status(201).json(novoLote);
     } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Erro interno no banco de dados ao criar o lote com documento.' });
+        console.error("🚨 ERRO INTERNO AO SALVAR NO BANCO:", error);
+        return res.status(500).json({ error: 'Erro interno ao criar o lote com documento.' });
     }
 });
 
