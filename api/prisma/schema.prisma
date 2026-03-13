@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Empresa {
+  id                 String  @id @default(uuid())
+  cnpj               String  @unique
+  razao_social       String
+  inscricao_estadual String
+  uf                 String  @db.Char(2)
+  tipo               TipoEmpresa
+  status             StatusEmpresa @default(PENDENTE)
+
+  usuarios           Usuario[]
+  lotes_venda        LoteCredito[] @relation("Vendedor")
+  propostas_compra   Proposta[]    @relation("Comprador")
+
+  @@map("empresas")
+}
+
+model Usuario {
+  id         String @id @default(uuid())
+  empresa_id String
+  nome       String
+  email      String @unique
+  senha_hash String
+  perfil     PerfilUsuario @default(OPERACIONAL)
+
+  empresa    Empresa @relation(fields: [empresa_id], references: [id])
+
+  @@map("usuarios")
+}
+
+model LoteCredito {
+  id               String   @id @default(uuid())
+  empresa_id       String
+  uf_origem        String   @db.Char(2)
+  // O valor_face representa o estoque original e NUNCA deve ser atualizado diretamente após criado.
+  // Fracionamentos devem gerar novos lotes (lotes filhos).
+  valor_face       Decimal  @db.Decimal(15, 2)
+  desagio_sugerido Decimal  @db.Decimal(5, 2)
+  status           StatusLote @default(DISPONIVEL)
+  criado_em        DateTime @default(now())
+
+  vendedor         Empresa  @relation("Vendedor", fields: [empresa_id], references: [id])
+  propostas        Proposta[]
+
+  @@map("lotes_credito")
+}
+
+model Proposta {
+  id                String   @id @default(uuid())
+  lote_id           String
+  comprador_id      String
+  desagio_oferecido Decimal  @db.Decimal(5, 2)
+  valor_final       Decimal  @db.Decimal(15, 2)
+  status            StatusProposta @default(EM_ANALISE)
+  criado_em         DateTime @default(now())
+
+  lote              LoteCredito @relation(fields: [lote_id], references: [id])
+  comprador         Empresa     @relation("Comprador", fields: [comprador_id], references: [id])
+
+  @@map("propostas")
+}
+
+enum TipoEmpresa {
+  COMPRADOR
+  VENDEDOR
+  AMBOS
+}
+
+enum StatusEmpresa {
+  PENDENTE
+  APROVADA
+  BLOQUEADA
+}
+
+enum PerfilUsuario {
+  ADMIN_PLATAFORMA
+  GESTOR
+  OPERACIONAL
+}
+
+enum StatusLote {
+  DISPONIVEL
+  EM_NEGOCIACAO
+  VENDIDO
+  CANCELADO
+}
+
+enum StatusProposta {
+  EM_ANALISE
+  ACEITA
+  REJEITADA
+  AGUARDANDO_SEFAZ
+  CONCLUIDA
+}
